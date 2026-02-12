@@ -547,14 +547,27 @@ jobs:
           
           echo "✓ sched_ext 已启用（支持风驰 scx 调度查看及调试）"
        
-      - name: ⚙️ 应用风驰补丁（已手动验证）
+      - name: ⚙️ 应用自备风驰补丁（调度参数优化）
         run: |
           cd kernel_workspace/common
-          curl -LSs https://raw.githubusercontent.com/Numbersf/SCHED_PATCH/sm8750/fengchi_oneplus_13_global.patch -o fengchi.patch
+          echo "⬇️ 从用户仓库拉取风驰补丁..."
+          curl -LSs https://raw.githubusercontent.com/ukp6/oppo_oplus_realme_sm8750/main/other_patch/fengchi.patch -o fengchi.patch
+    
+          # 转换换行符（防止格式问题）
           sed -i 's/\r$//' fengchi.patch
-          patch -p1 -F 3 --dry-run < fengchi.patch || exit 1
+    
+          echo "🔍 测试补丁兼容性..."
+          if ! patch -p1 --dry-run -F 3 < fengchi.patch; then
+            echo "❌ 补丁不兼容当前内核，终止构建"
+            exit 1
+          fi
+    
+          echo "⚙️ 应用补丁..."
           patch -p1 -F 3 < fengchi.patch
-          echo "✅ 成功"
+          echo "✅ 风驰补丁应用成功"
+    
+          # 清理临时文件
+          rm -f fengchi.patch
       
       - name: 启用内核级基带保护
         if: inputs.baseband_guard
