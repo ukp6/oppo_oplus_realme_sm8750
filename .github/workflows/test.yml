@@ -547,36 +547,20 @@ jobs:
           
           echo "✓ sched_ext 已启用（支持风驰 scx 调度查看及调试）"
 
-      - name: ⚙️ 应用风驰调度补丁 (SCHED_PATCH)
-        if: inputs.fc_enable
+      - name: ⚙️ 应用风驰调度补丁 (OnePlus 13)
+        if: ${{ github.event.inputs.KERNEL_VERSION == '6.6' }}
         run: |
           cd kernel_workspace/common
-          echo "⬇️ 正在拉取风驰补丁 (SM8750 专用)"
-          git clone https://github.com/Numbersf/SCHED_PATCH.git -b "sm8750" --depth=1
+          echo "⬇️ 正在拉取风驰补丁仓库..."
+          git clone https://github.com/Numbersf/SCHED_PATCH.git -b sm8750 --depth=1
           
-          # 复制通用或机型专用 patch（repo 里有多个，优先找匹配的）
-          cp ./SCHED_PATCH/fengchi_sm8750.patch ./fengchi.patch 2>/dev/null || true
-          # 如果没有专用，fallback 用通用或其他（根据 repo 实际文件调整）
-          if [[ ! -f "./fengchi.patch" ]]; then
-            cp ./SCHED_PATCH/fengchi_common.patch ./fengchi.patch 2>/dev/null || true
-          fi
-          
-          if [[ -f "fengchi.patch" ]]; then
-            echo "⚙️ 开始应用风驰主补丁"
-            dos2unix fengchi.patch || true
-            patch -p1 -F 3 -R < fengchi.patch || patch -p1 -F 3 < fengchi.patch  # 支持正向/反向（防冲突）
-            echo "✅ 风驰主补丁应用完成"
-          else
-            echo "⚠️ 未找到风驰主补丁，应用 OGKI→GKI 转换补丁 (hmbird)"
-            echo 'obj-y += hmbird_patch.o' >> drivers/Makefile
-            curl -LSs https://github.com/Numbersf/Action-Build/raw/SukiSU-Ultra/patches/hmbird_patch.patch -o hmbird_patch.patch
-            dos2unix hmbird_patch.patch || true
-            patch -p1 -F 3 < hmbird_patch.patch || { echo "hmbird 补丁失败！"; exit 1; }
-            echo "✅ OGKI→GKI 转换补丁应用完成"
-          fi
-          
-          # 清理临时文件
-          rm -rf SCHED_PATCH fengchi.patch hmbird_patch.patch
+          cp ./SCHED_PATCH/fengchi_oneplus_13_b.patch ./fengchi.patch
+
+          echo "⚙️ 应用风驰补丁..."
+          patch -p1 -F 3 < fengchi.patch
+          echo "✅ 风驰补丁应用成功"
+
+          rm -rf SCHED_PATCH fengchi.patch
       
       - name: 启用内核级基带保护
         if: inputs.baseband_guard
