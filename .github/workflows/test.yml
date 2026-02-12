@@ -546,21 +546,15 @@ jobs:
           echo "CONFIG_SCHED_DEBUG=y" >> arch/arm64/configs/gki_defconfig  # 启用 debug 接口，便于查看 /sys/kernel/debug/sched/ext
           
           echo "✓ sched_ext 已启用（支持风驰 scx 调度查看及调试）"
-
-      - name: ⚙️ 应用风驰调度补丁 (OnePlus 13)
-        if: inputs.fc_enable
+       
+      - name: ⚙️ 应用风驰补丁（已手动验证）
         run: |
           cd kernel_workspace/common
-          echo "⬇️ 正在拉取风驰补丁仓库..."
-          git clone https://github.com/Numbersf/SCHED_PATCH.git -b sm8750 --depth=1
-          
-          cp ./SCHED_PATCH/fengchi_oneplus_13_b.patch ./fengchi.patch
-
-          echo "⚙️ 应用风驰补丁..."
+          curl -LSs https://raw.githubusercontent.com/Numbersf/SCHED_PATCH/sm8750/fengchi_oneplus_13_global.patch -o fengchi.patch
+          sed -i 's/\r$//' fengchi.patch
+          patch -p1 -F 3 --dry-run < fengchi.patch || exit 1
           patch -p1 -F 3 < fengchi.patch
-          echo "✅ 风驰补丁应用成功"
-
-          rm -rf SCHED_PATCH fengchi.patch
+          echo "✅ 成功"
       
       - name: 启用内核级基带保护
         if: inputs.baseband_guard
