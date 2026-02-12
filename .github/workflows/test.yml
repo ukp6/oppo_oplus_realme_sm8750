@@ -228,7 +228,6 @@ jobs:
             # 使用 dev 分支
             curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev
             cd KernelSU-Next
-            rm -rf .git
             
             # 更可靠的版本号获取方式
             KSU_VERSION=$(expr $(curl -sI "https://api.github.com/repos/pershoot/KernelSU-Next/commits?sha=dev&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 30000)
@@ -406,10 +405,6 @@ jobs:
             fi
           fi
           
-          if [[ "${{ github.event.inputs.susfs_enable }}" == "false" ]]; then
-            echo "CONFIG_KSU_SUSFS=n" >> "$DEFCONFIG"
-          fi
-          
           # Mountify 支持
           if ! grep -q "^CONFIG_TMPFS_XATTR=y" "$DEFCONFIG"; then
             echo "CONFIG_TMPFS_XATTR=y" >> "$DEFCONFIG"
@@ -569,7 +564,16 @@ jobs:
           echo "CONFIG_LOCALVERSION_AUTO=n" >> "$DEFCONFIG"
           # 清理 setlocalversion 中的干扰
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion 2>/dev/null || true
-           
+
+      - name: 预清理磁盘空间（释放资源）
+        run: |
+          echo "清理不必要的系统目录以释放磁盘空间..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+      
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
@@ -594,40 +598,8 @@ jobs:
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
           cd kernel_workspace/common
-          wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
-          wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
-          chmod 777 ./*.so
-          export FAKESTAT="2025-05-25 12:00:00"
-          export FAKETIME="@2025-05-25 13:00:00"
-          echo "FAKESTAT=$FAKESTAT" >> $GITHUB_ENV
-          echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
-          SO_DIR=$(pwd)
-          export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-          
-          # 创建 CC 包装器
-          echo '#!/bin/bash' > cc-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
-          echo 'ccache clang "$@"' >> cc-wrapper
-          
-          # 创建 LD 包装器
-          echo '#!/bin/bash' > ld-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
-          echo 'ld.lld "$@"' >> ld-wrapper
-          
-          chmod +x cc-wrapper ld-wrapper
-          
-          # 测试时间劫持
-          echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          
-          # 清理空间
-          sudo rm -rf /usr/share/dotnet &
-          sudo rm -rf /usr/local/lib/android &
-          sudo rm -rf /opt/ghc &
-          sudo rm -rf /opt/hostedtoolcache/CodeQL &
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
           
           # 构建
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
