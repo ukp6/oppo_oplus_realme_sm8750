@@ -21,11 +21,6 @@ on:
           - 'mksu'
           - 'ksu'
           - 'none'
-      third_manager_enable:
-        description: '是否启用第三方 Manager 白名单 (pershoot / Wild_KSU 支持)'
-        required: true
-        type: boolean
-        default: 'true'  # 或 false，根据你默认需求
       susfs_enable:
         description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭)'
         required: true
@@ -550,11 +545,8 @@ jobs:
       - name: ⚙️ 应用风驰调度补丁 (SCHED_PATCH)
         if: ${{ github.event.inputs.KERNEL_VERSION == '6.6' }}  # 只在 6.6 版本应用（匹配原代码）
         run: |
-          cd kernel_workspace/common  # 你的源码目录是 common
-          
+          cd kernel_workspace/common
           echo "⬇️ 正在拉取风驰补丁 (SM8750 专用)"
-          
-          # 固定用 sm8750 branch（你的机型）
           git clone https://github.com/Numbersf/SCHED_PATCH.git -b "sm8750" --depth=1
           
           # 复制通用或机型专用 patch（repo 里有多个，优先找匹配的）
@@ -601,24 +593,18 @@ jobs:
       - name: 添加制作名称
         run: |
           cd kernel_workspace
-          echo "替换内核版本后缀..."
+          echo "设置内核版本后缀..."
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-            echo "当前内核版本后缀：${{ github.event.inputs.kernel_suffix }}"
-            for f in ./common/scripts/setlocalversion; do
-              sed -i "\$s|echo \"\\\\\\$res\"|echo \"-${{ github.event.inputs.kernel_suffix }}\"|" "$f"
-            done
-            sudo sed -i 's/-4k/-${{ github.event.inputs.KERNEL_SUFFIX }}/g' ./common/arch/arm64/configs/gki_defconfig
+            SUFFIX="${{ github.event.inputs.kernel_suffix }}"
           else
-            echo "当前内核版本后缀：${{ env.KERNEL_NAME }}"
-            for f in ./common/scripts/setlocalversion; do
-              sed -i "\$s|echo \"\\\\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
-            done
-            sudo sed -i 's/-4k/-${{ env.KERNEL_NAME }}/g' ./common/arch/arm64/configs/gki_defconfig
+            SUFFIX="${{ env.KERNEL_NAME }}"
           fi
-          sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
-          if ! grep -q "^CONFIG_LOCALVERSION_AUTO=n" ./common/arch/arm64/configs/gki_defconfig; then
-            echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
-          fi
+          DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
+          # 使用内核官方方法设置 LOCALVERSION
+          echo "CONFIG_LOCALVERSION=\"-${SUFFIX}\"" >> "$DEFCONFIG"
+          echo "CONFIG_LOCALVERSION_AUTO=n" >> "$DEFCONFIG"
+          # 清理 setlocalversion 中的干扰
+          sed -i 's/${scm_version}//' ./common/scripts/setlocalversion 2>/dev/null || true
            
       - name: 构建内核
         run: |
@@ -723,14 +709,6 @@ jobs:
             ksu) KSU_TYPENAME="KSU" ;;
             *) KSU_TYPENAME="none" ;;
           esac
-          
-          # 下载额外文件
-          if [[ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]]; then
-            wget -q https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8750/refs/heads/main/zram.zip || true
-          fi
-          if [[ ${{ github.event.inputs.kpm_enable }} == 'kpn' ]]; then
-            wget -q https://github.com/cctv18/KPatch-Next/releases/latest/download/kpn.zip || true
-          fi
           
           # 打包
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
