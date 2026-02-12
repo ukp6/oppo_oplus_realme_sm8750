@@ -1,4 +1,4 @@
-name: 加速版构建 6.6.89 欧加真OKI内核
+name: 加速版构建 6.6.89 欧加真OKI内核 自用
 
 env:
   TZ: Asia/Shanghai
@@ -175,22 +175,7 @@ jobs:
             echo "ccache缓存命中详情:"
             ccache -sv
           fi
-
-      - name: 应用第三方 Manager 白名单补丁 (apk_sign)
-        run: |
-          cd kernel_workspace/common
-          
-          if [[ ${{ github.event.inputs.third_manager_enable }} == "true" ]]; then
-            echo "正在应用第三方 Manager 白名单补丁..."
-            
-            curl -LSs https://raw.githubusercontent.com/ukp6/oplus_realme_sm8750/main/other_patch/apk_sign.patch -o apk_sign.patch || exit 1
-            
-            patch -p1 < apk_sign.patch || { echo "补丁应用失败！"; exit 1; }
-            
-            echo "✓ 补丁应用成功"
-            rm -f apk_sign.patch
-          fi
-      
+        
       - name: 添加KernelSU
         id: ksu_version
         run: |
@@ -258,21 +243,6 @@ jobs:
             
             KSU_GIT_TAG=$(curl -sL "https://api.github.com/repos/KernelSU-Next/KernelSU-Next/tags" | grep -o '"name": *"[^"]*"' | head -n 1 | sed 's/"name": "//;s/"//')
             sed -i "s/KSU_VERSION_TAG_FALLBACK := v0.0.1/KSU_VERSION_TAG_FALLBACK := $KSU_GIT_TAG/g" kernel/Kbuild
-            
-            # 尝试应用 WildKSU 支持补丁，但失败时不中断构建
-            echo "尝试应用 WildKSU 支持补丁 (可选功能)..."
-            cd ../common/drivers/kernelsu
-            if wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/apk_sign.patch 2>/dev/null; then
-              if patch -p2 --dry-run < apk_sign.patch >/dev/null 2>&1; then
-                patch -p2 < apk_sign.patch && echo "✓ WildKSU 补丁应用成功" || echo "⚠️ WildKSU 补丁应用失败，继续构建"
-              else
-                echo "⚠️ WildKSU 补丁与当前代码不兼容，跳过（不影响核心功能）"
-              fi
-              rm -f apk_sign.patch
-            else
-              echo "⚠️ 无法下载 WildKSU 补丁，跳过"
-            fi
-            cd ../../..
             
           elif [[ ${{ github.event.inputs.ksu_type }} == "mksu" ]]; then
             echo "正在配置 MKSU (5ec1cff/KernelSU)..."
