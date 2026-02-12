@@ -534,6 +534,16 @@ jobs:
           if ! grep -q "^CONFIG_REKERNEL=y" "$DEFCONFIG"; then
             echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
           fi
+          
+      - name: 🔍 检查内核是否已包含 hmbird
+        run: |
+          cd kernel_workspace/common
+          if [ -d kernel/sched/hmbird ]; then
+            echo "✅ 检测到 kernel/sched/hmbird 目录，内核已原生支持 hmbird"
+          else
+            echo "❌ 未找到 hmbird 目录，需要移植补丁"
+            exit 1
+          fi
 
       - name: ⚙️ 启用 sched_ext 支持 (风驰调度依赖)
         run: |
@@ -548,6 +558,7 @@ jobs:
           echo "✓ sched_ext 已启用（支持风驰 scx 调度查看及调试）"
        
       - name: ⚙️ 应用自备风驰补丁（调度参数优化）
+        if: inputs.fc_enable
         run: |
           cd kernel_workspace/common
           echo "⬇️ 从用户仓库拉取风驰补丁..."
