@@ -97,57 +97,35 @@ jobs:
           mkdir kernel_workspace
           cd kernel_workspace
           
-          sudo apt-mark hold firefox &&
-          sudo apt-mark hold libc-bin &&
-          sudo apt purge man-db &&
-          sudo rm -rf /var/lib/man-db/auto-update &&
-          sudo apt update &&
-          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache &
+          sudo apt-mark hold firefox
+          sudo apt-mark hold libc-bin
+          sudo apt purge man-db
+          sudo rm -rf /var/lib/man-db/auto-update
+          sudo apt update
+          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache
           #旧版完整指令：（由于经过验证大部分指令已内置于GitHub Action环境中，故进行精简）
           #sudo apt-get install -y --no-install-recommends curl bison flex make binutils git perl gcc python3 python-is-python3 bc libssl-dev libelf-dev zip unzip ccache
           
           echo "正在克隆源码仓库..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip -o common.zip && 
-          unzip -q common.zip && 
-          mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_v_16.0.0_oneplus_13_6.6.89" common &&
-          rm -rf common.zip &
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip -o common.zip
+          unzip -q common.zip
+          mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_v_16.0.0_oneplus_13_6.6.89" common
+          rm -rf common.zip
           
-          echo "正在克隆llvm-clang18工具链..." &&
-          mkdir -p clang18 &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip -o clang.zip &&
-          unzip -q clang.zip -d clang18 &&
-          rm -rf clang.zip &
+          echo "正在克隆llvm-clang18工具链..."
+          mkdir -p clang18
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip -o clang.zip
+          unzip -q clang.zip -d clang18
+          rm -rf clang.zip
           
-          echo "正在克隆构建工具..." &&
-          # 改进版本
-          download_and_extract() {
-            local url=$1
-            local output=$2
-            local extract_dir=$3
-  
-            aria2c -s16 -x16 -k1M "$url" -o "$output" || return 1
-            unzip -q "$output" || return 1
-            [ -n "$extract_dir" ] && mv * "$extract_dir"
-            rm -rf "$output"
-          }
-
-          download_and_extract "https://github.com/.../common.zip" "common.zip" "common" &
-          PID_COMMON=$!
-
-          download_and_extract "https://github.com/.../clang.zip" "clang.zip" "clang18" &
-          PID_CLANG=$!
-
-          # 等待所有后台任务完成并检查状态
-          wait $PID_COMMON || { echo "Common源码下载失败"; exit 1; }
-          wait $PID_CLANG || { echo "Clang下载失败"; exit 1; }
-          
-          echo "所有源码及llvm-Clang18工具链初始化完成！"
           echo "正在去除 ABI 保护 & 去除 dirty 后缀..."
-          rm common/android/abi_gki_protected_exports_* || true
+          rm -f common/android/abi_gki_protected_exports_* 2>/dev/null || true
           for f in common/scripts/setlocalversion; do
-            sed -i 's/ -dirty//g' "$f"
-            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
+              sed -i 's/ -dirty//g' "$f"
+              sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
+
+          echo "所有源码及llvm-Clang18工具链初始化完成！"
 
       - name: 配置ccache目录
         run: |
