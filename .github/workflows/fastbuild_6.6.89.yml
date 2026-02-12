@@ -379,18 +379,29 @@ jobs:
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
         run: |
-          set -euo pipefail
+          echo "正在添加lz4 1.10.0 & zstd 1.5.7补丁…"
           cd kernel_workspace
-          if [ ! -d "oppo_oplus_realme_sm8750" ]; then
-            git clone --depth=1 https://github.com/cctv18/oppo_oplus_realme_sm8750.git
-          fi
-          cd common
-          [ -f ../oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ] && \
-            patch -p1 -N -F 3 < ../oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch || echo "⚠️ lz4补丁不存在或已应用"
-          cp ../oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./lib/ 2>/dev/null || true
-          [ -f ../oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ] && \
-            patch -p1 -N -F 3 < ../oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch || echo "⚠️ zstd补丁不存在或已应用"
-
+          git clone --depth=1 https://github.com/cctv18/oppo_oplus_realme_sm8750.git
+          # ---------- 先打 lz4 补丁 ----------
+          cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
+          cd ./common
+          # 使用 -f 强制应用，忽略可能的部分失败
+          patch -p1 -N -F 3 -f < 001-lz4.patch || true
+          cd ..
+          # ---------- 修复 lz4 编译规则 ----------
+          # 1. 确保目标目录存在
+          mkdir -p ./common/lib/lz4/lz4armv8
+          # 2. 把正确的汇编文件放到正确的位置
+          cp -f ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib/lz4/lz4armv8/
+          # 3. 修改 Makefile，添加编译规则
+          echo "obj-\$(CONFIG_LZ4_COMPRESS)   += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
+          echo "obj-\$(CONFIG_LZ4_DECOMPRESS) += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
+          
+          # ---------- 打 zstd 补丁 ----------
+          cp ./oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ./common/
+          cd ./common
+          patch -p1 -N -F 3 < 002-zstd.patch || true
+          
       - name: 应用 lz4kd 补丁
         if: inputs.lz4kd_enable
         run: |
