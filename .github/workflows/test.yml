@@ -13,7 +13,7 @@ on:
         description: 'KernelSU分支(SukiSU Ultra/ReSukiSU/KernelSU Next/MKSU/KSU(原版)/无内置KSU,默认ReSukiSU)'
         required: true
         type: choice
-        default: 'resukisu'
+        default: 'ksunext'
         options:
           - 'sukisu'
           - 'resukisu'
@@ -444,6 +444,13 @@ jobs:
           if ! grep -q "^CONFIG_HEADERS_INSTALL=n" "$DEFCONFIG"; then
             echo "CONFIG_HEADERS_INSTALL=n" >> "$DEFCONFIG"
           fi
+
+          # ---------- 启用 hmbird（第二代风驰）----------
+          echo "CONFIG_HMBIRD_SCHED=y" >> "$DEFCONFIG"
+          # 启用 OPPO GKI 标识（让 hmbird 识别为 OGKI 环境）
+          echo "CONFIG_HMBIRD_OGKI_VERSION=y" >> "$DEFCONFIG"
+          # 禁用冲突的 sched_ext（必须！hmbird 与 sched_ext 不能共存）
+          sed -i '/CONFIG_SCHED_CLASS_EXT=y/d' "$DEFCONFIG"
           
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -534,51 +541,6 @@ jobs:
           if ! grep -q "^CONFIG_REKERNEL=y" "$DEFCONFIG"; then
             echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
           fi
-          
-      - name: 🔍 检查内核是否已包含 hmbird
-        run: |
-          cd kernel_workspace/common
-          if [ -d kernel/sched/hmbird ]; then
-            echo "✅ 检测到 kernel/sched/hmbird 目录，内核已原生支持 hmbird"
-          else
-            echo "❌ 未找到 hmbird 目录，需要移植补丁"
-            exit 1
-          fi
-
-      - name: ⚙️ 启用 sched_ext 支持 (风驰调度依赖)
-        run: |
-          cd kernel_workspace/common
-          
-          # 强制启用 sched_ext（风驰核心依赖，支持 scx 查看）
-          echo "CONFIG_SCHED_CLASS_EXT=y" >> arch/arm64/configs/gki_defconfig
-          
-          # 可选：加其他相关 config（如果风驰需要，防默认禁用）
-          echo "CONFIG_SCHED_DEBUG=y" >> arch/arm64/configs/gki_defconfig  # 启用 debug 接口，便于查看 /sys/kernel/debug/sched/ext
-          
-          echo "✓ sched_ext 已启用（支持风驰 scx 调度查看及调试）"
-       
-      - name: ⚙️ 应用自备风驰补丁（调度参数优化）
-        if: inputs.fc_enable
-        run: |
-          cd kernel_workspace/common
-          echo "⬇️ 从用户仓库拉取风驰补丁..."
-          curl -LSs https://raw.githubusercontent.com/ukp6/oppo_oplus_realme_sm8750/main/other_patch/fengchi.patch -o fengchi.patch
-    
-          # 转换换行符（防止格式问题）
-          sed -i 's/\r$//' fengchi.patch
-    
-          echo "🔍 测试补丁兼容性..."
-          if ! patch -p1 --dry-run -F 3 < fengchi.patch; then
-            echo "❌ 补丁不兼容当前内核，终止构建"
-            exit 1
-          fi
-    
-          echo "⚙️ 应用补丁..."
-          patch -p1 -F 3 < fengchi.patch
-          echo "✅ 风驰补丁应用成功"
-    
-          # 清理临时文件
-          rm -f fengchi.patch
       
       - name: 启用内核级基带保护
         if: inputs.baseband_guard
