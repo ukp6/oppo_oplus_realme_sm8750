@@ -298,6 +298,8 @@ jobs:
 
           none)
             echo "已选择无内置KernelSU模式，跳过KernelSU配置..."
+            echo "KSUVER=0" >> $GITHUB_ENV          # 加这行
+            echo "ksuver=0" >> $GITHUB_OUTPUT       # 加这行
             ;;
         esac
 
@@ -428,20 +430,20 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y \
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y \
           CONFIG_KSU_SUSFS_SUS_MAP=y; do
-          grep -q "^$opt" "$DEFCONFIG" || echo "$opt" >> "$DEFCONFIG"
+            grep -q "^$opt" "$DEFCONFIG" || echo "$opt" >> "$DEFCONFIG"
         done
 
     - name: 添加 KSU & 其他配置项
       run: |
         cd kernel_workspace
         DEFCONFIG=./common/arch/arm64/configs/gki_defconfig
-        grep -q "^CONFIG_KSU=y" "$DEFCONFIG" || echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+        if [[ "${{ github.event.inputs.ksu_type }}" != "none" ]]; then
+         grep -q "^CONFIG_KSU=y" "$DEFCONFIG" || echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+        fi
         if [[ "${{ github.event.inputs.kpm_enable }}" == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
           grep -q "^CONFIG_KPM=y" "$DEFCONFIG" || echo "CONFIG_KPM=y" >> "$DEFCONFIG"
         fi
-        if [[ "${{ github.event.inputs.susfs_enable }}" == "false" ]]; then
-          grep -q "^CONFIG_KSU_SUSFS=n" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS=n" >> "$DEFCONFIG"
-        fi
+        
         grep -q "^CONFIG_TMPFS_XATTR=y" "$DEFCONFIG" || echo "CONFIG_TMPFS_XATTR=y" >> "$DEFCONFIG"
         grep -q "^CONFIG_TMPFS_POSIX_ACL=y" "$DEFCONFIG" || echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$DEFCONFIG"
         if [[ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]]; then
@@ -545,37 +547,33 @@ jobs:
     - name: 添加制作名称
       run: |
         cd kernel_workspace
-        echo "替换内核版本后缀..."
+        echo "设置内核版本后缀..."
         if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
           SUFFIX="${{ github.event.inputs.kernel_suffix }}"
         else
           SUFFIX="${{ env.KERNEL_NAME }}"
         fi
-        for f in ./common/scripts/setlocalversion; do
-          sed -i "\$s|echo \"\\\$res\"|echo \"-\${SUFFIX}\"|" "$f"
-        done
         DEFCONFIG=./common/arch/arm64/configs/gki_defconfig
-        sed -i "s/-4k/-${SUFFIX}/g" "$DEFCONFIG"
-        sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
+        echo "CONFIG_LOCALVERSION=\"-${SUFFIX}\"" >> "$DEFCONFIG"
         grep -q "^CONFIG_LOCALVERSION_AUTO=n" "$DEFCONFIG" || echo "CONFIG_LOCALVERSION_AUTO=n" >> "$DEFCONFIG"
+        sed -i 's/${scm_version}//' ./common/scripts/setlocalversion 2>/dev/null || true
 
-    # ------------------------------------------------------------
-    # 7. 预清理环境（独立步骤）
-    # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 7. 预清理环境
+  # ------------------------------------------------------------
     - name: 预清理环境
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         echo "环境清理完成"
 
-    # ------------------------------------------------------------
-    # 8. 构建内核（先设置环境，后make）—— 核心修复
-    # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 8. 构建内核
+  # ------------------------------------------------------------
     - name: 构建内核
       run: |
         set -euo pipefail
         cd kernel_workspace/common
 
-        # ---------- 1. 设置 PATH / 编译器 ----------
         export PATH="/usr/lib/ccache:$PATH"
         export PATH="$(pwd)/../clang18/bin:$PATH"
         CLANG_DIR="$(pwd)/../clang18/bin"
@@ -589,37 +587,16 @@ jobs:
         mkdir -p "$CCACHE_DIR"
         echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
 
-        # ---------- 2. 下载时间伪造库 ----------
-        wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
-        wget -q https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
-        chmod 777 ./*.so
-        export FAKESTAT="2025-05-25 12:00:00"
-        export FAKETIME="@2025-05-25 13:00:00"
-        echo "FAKESTAT=$FAKESTAT" >> $GITHUB_ENV
-        echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
-        SO_DIR="$(pwd)"
-        PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-
-        # ---------- 3. 创建编译器/链接器包装器 ----------
         cat > cc-wrapper <<EOF
         #!/bin/bash
-        export LD_PRELOAD="$PRELOAD_LIBS"
-        export FAKESTAT="$FAKESTAT"
-        export FAKETIME="$FAKETIME"
         ccache clang "\$@"
         EOF
-
         cat > ld-wrapper <<EOF
         #!/bin/bash
-        export LD_PRELOAD="$PRELOAD_LIBS"
-        export FAKESTAT="$FAKESTAT"
-        export FAKETIME="$FAKETIME"
         ld.lld "\$@"
         EOF
-
         chmod +x cc-wrapper ld-wrapper
 
-        # ---------- 4. 导出编译变量 ----------
         export CC="$(pwd)/cc-wrapper"
         export LD="$(pwd)/ld-wrapper"
         export AR=llvm-ar
@@ -630,48 +607,37 @@ jobs:
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # ---------- 5. 显示编译器版本 ----------
         echo "Clang版本: $($CLANG_DIR/clang --version | head -n1)"
         echo "LLD版本: $($CLANG_DIR/ld.lld --version | head -n1)"
-        pahole --version 2>/dev/null || echo "pahole未安装"
 
-        # ---------- 6. 内核配置 ----------
-        # ⚠️ 请根据实际仓库替换为正确的 defconfig！此处仅示例
-        make ARCH=arm64 CC="$CC" LD="$LD" O=out defconfig
-
-        # ---------- 7. 编译内核 ----------
+        make ARCH=arm64 CC="$CC" LD="$LD" O=out gki_defconfig
         make -j$(nproc --all) ARCH=arm64 CC="$CC" LD="$LD" O=out
 
-        # ---------- 8. 验证时间劫持 ----------
-        FAKED_TIME=$(date +%s)
-        REAL_TIME=$(env -u FAKETIME -u FAKESTAT /bin/date +%s)
-        if [ "$FAKED_TIME" != "$REAL_TIME" ]; then
-          echo "✓ 时间劫持成功: 伪造=$FAKED_TIME, 真实=$REAL_TIME"
-        else
-          echo "⚠️ 时间劫持可能无效！"
-        fi
-
-    # ------------------------------------------------------------
-    # 9. 应用KPM并修补内核
-    # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 9. 应用KPM并修补内核
+  # ------------------------------------------------------------
     - name: 应用KPM并修补内核
       if: github.event.inputs.kpm_enable == 'builtin' && (github.event.inputs.ksu_type == 'sukisu' || github.event.inputs.ksu_type == 'resukisu')
       run: |
         set -euo pipefail
         cd kernel_workspace/common/out/arch/arm64/boot
         if [ -f Image ]; then
-          curl -LO https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux
-          chmod +x patch_linux
-          ./patch_linux
-          rm -f Image
-          mv oImage Image
+          curl -fLO https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux || echo "⚠️ 下载失败，跳过KPM"
+          if [ -f patch_linux ]; then
+            chmod +x patch_linux
+            ./patch_linux
+            rm -f Image
+            mv oImage Image
+          else
+            echo "❌ 未找到patch_linux，KPM修补跳过"
+          fi
         else
           echo "❌ 未找到内核镜像，KPM修补跳过"
         fi
 
-    # ------------------------------------------------------------
-    # 10. 克隆 AnyKernel3 并打包
-    # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 10. 克隆 AnyKernel3 并打包
+  # ------------------------------------------------------------
     - name: 克隆 AnyKernel3 并打包
       run: |
         set -euo pipefail
@@ -685,17 +651,7 @@ jobs:
         fi
         cp ../common/out/arch/arm64/boot/Image ./Image
 
-        # 根据输入添加额外文件
-        if [[ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]]; then
-          wget -q https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8750/refs/heads/main/zram.zip
-          # 如需包含在刷机包中，请在此处解压或复制
-        fi
-        if [[ "${{ github.event.inputs.kpm_enable }}" == 'kpn' ]]; then
-          wget -q https://github.com/cctv18/KPatch-Next/releases/latest/download/kpn.zip
-          # 如需包含则添加
-        fi
-
-        # 确定KSU类型名称
+      # 确定KSU类型名称
         case "${{ github.event.inputs.ksu_type }}" in
           sukisu)   KSU_TYPENAME="SukiSU" ;;
           resukisu) KSU_TYPENAME="ReSukiSU" ;;
@@ -711,9 +667,9 @@ jobs:
           zip -r "../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip" ./*
         fi
 
-    # ------------------------------------------------------------
-    # 11. 上传 Ccache 调试日志（可选）
-    # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # 11. 上传 Ccache 调试日志（可选）
+  # ------------------------------------------------------------
     - name: 上传 Ccache 调试日志
       if: always() && inputs.ccache_debug
       uses: actions/upload-artifact@v4
@@ -728,16 +684,16 @@ jobs:
         path: ${{ github.workspace }}/kernel_workspace/AnyKernel*.zip
         retention-days: 30
         compression-level: 9
-        
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-      actions: read
       
-    steps:
+release:
+  needs: build
+  runs-on: ubuntu-latest
+  permissions:
+    contents: write
+    packages: write
+    actions: read
+      
+  steps:
       - name: 下载 ZIP 工件
         uses: actions/download-artifact@v4
         with:
@@ -833,4 +789,4 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            release_zips/AnyKernel3_*.zip
+            release_zips/AnyKernel3_*.zip   
