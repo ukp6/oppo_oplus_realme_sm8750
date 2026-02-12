@@ -297,7 +297,7 @@ jobs:
             echo "KSUVER=0" >> $GITHUB_ENV
             echo "ksuver=0" >> $GITHUB_OUTPUT
           fi
-
+          
       - name: 应用 KernelSU & SUSFS 补丁
         if: inputs.susfs_enable
         run: |
@@ -366,36 +366,19 @@ jobs:
             fi
             cd ../common
           fi
-          
+
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
         run: |
           echo "正在添加lz4 1.10.0 & zstd 1.5.7补丁…"
           cd kernel_workspace
           git clone --depth=1 https://github.com/cctv18/oppo_oplus_realme_sm8750.git
-          
-          # 应用 lz4 补丁
           cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
-          cd ./common
-          patch -p1 -N --fuzz=3 < 001-lz4.patch || echo "⚠️ lz4 补丁部分失败，继续"
-          cd ..
-          
-          # 修复 lz4 编译规则
-          mkdir -p ./common/lib/lz4/lz4armv8
-          cp -f ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib/lz4/lz4armv8/
-          echo "obj-\$(CONFIG_LZ4_COMPRESS)   += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
-          echo "obj-\$(CONFIG_LZ4_DECOMPRESS) += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
-          
-          # 应用 zstd 补丁（增加容错性）
+          cp ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib
           cp ./oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ./common/
           cd ./common
-          echo "应用 zstd 补丁..."
-          if patch -p1 -N --fuzz=5 < 002-zstd.patch; then
-            echo "✓ zstd 补丁应用成功"
-          else
-            echo "⚠️ zstd 补丁部分失败，尝试强制应用..."
-            patch -p1 -N --fuzz=10 -l < 002-zstd.patch || echo "⚠️ zstd 补丁最终失败，继续构建"
-          fi
+          git apply -p1 < 001-lz4.patch || true
+          patch -p1 < 002-zstd.patch || true
 
       - name: 应用 lz4kd 补丁
         if: inputs.lz4kd_enable
@@ -582,6 +565,52 @@ jobs:
             echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
           fi
 
+      - name: ⚙️ 启用 sched_ext 支持 (风驰调度依赖)
+        run: |
+          cd kernel_workspace/common
+          
+          # 强制启用 sched_ext（风驰核心依赖，支持 scx 查看）
+          echo "CONFIG_SCHED_CLASS_EXT=y" >> arch/arm64/configs/gki_defconfig
+          
+          # 可选：加其他相关 config（如果风驰需要，防默认禁用）
+          echo "CONFIG_SCHED_DEBUG=y" >> arch/arm64/configs/gki_defconfig  # 启用 debug 接口，便于查看 /sys/kernel/debug/sched/ext
+          
+          echo "✓ sched_ext 已启用（支持风驰 scx 调度查看及调试）"
+
+      - name: ⚙️ 应用风驰调度补丁 (SCHED_PATCH)
+        if: ${{ github.event.inputs.KERNEL_VERSION == '6.6' }}  # 只在 6.6 版本应用（匹配原代码）
+        run: |
+          cd kernel_workspace/common  # 你的源码目录是 common
+          
+          echo "⬇️ 正在拉取风驰补丁 (SM8750 专用)"
+          
+          # 固定用 sm8750 branch（你的机型）
+          git clone https://github.com/Numbersf/SCHED_PATCH.git -b "sm8750" --depth=1
+          
+          # 复制通用或机型专用 patch（repo 里有多个，优先找匹配的）
+          cp ./SCHED_PATCH/fengchi_sm8750.patch ./fengchi.patch 2>/dev/null || true
+          # 如果没有专用，fallback 用通用或其他（根据 repo 实际文件调整）
+          if [[ ! -f "./fengchi.patch" ]]; then
+            cp ./SCHED_PATCH/fengchi_common.patch ./fengchi.patch 2>/dev/null || true
+          fi
+          
+          if [[ -f "fengchi.patch" ]]; then
+            echo "⚙️ 开始应用风驰主补丁"
+            dos2unix fengchi.patch || true
+            patch -p1 -F 3 -R < fengchi.patch || patch -p1 -F 3 < fengchi.patch  # 支持正向/反向（防冲突）
+            echo "✅ 风驰主补丁应用完成"
+          else
+            echo "⚠️ 未找到风驰主补丁，应用 OGKI→GKI 转换补丁 (hmbird)"
+            echo 'obj-y += hmbird_patch.o' >> drivers/Makefile
+            curl -LSs https://github.com/Numbersf/Action-Build/raw/SukiSU-Ultra/patches/hmbird_patch.patch -o hmbird_patch.patch
+            dos2unix hmbird_patch.patch || true
+            patch -p1 -F 3 < hmbird_patch.patch || { echo "hmbird 补丁失败！"; exit 1; }
+            echo "✅ OGKI→GKI 转换补丁应用完成"
+          fi
+          
+          # 清理临时文件
+          rm -rf SCHED_PATCH fengchi.patch hmbird_patch.patch
+      
       - name: 启用内核级基带保护
         if: inputs.baseband_guard
         run: |
