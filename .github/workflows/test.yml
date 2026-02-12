@@ -25,7 +25,7 @@ on:
         description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭)'
         required: true
         type: boolean
-        default: 'true'
+        default: 'false'
       kpm_enable:
         description: '是否开启kpm(builtin-使用(re)sukisu内置kpm, kpn-使用独立kpm实现(支持任意KSU/面具环境); 不需要可保持默认关闭)'
         required: true
@@ -78,7 +78,7 @@ on:
         description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
         required: true
         type: boolean
-        default: 'true'
+        default: 'false'
       ccache_debug:
         description: '是否上传 Ccache调试日志(用于调试, 无需要不必开启)'
         required: true
