@@ -129,7 +129,7 @@ jobs:
             unzip -q "$output" || return 1
             [ -n "$extract_dir" ] && mv * "$extract_dir"
             rm -rf "$output"
-          ｝
+          }
 
           download_and_extract "https://github.com/.../common.zip" "common.zip" "common" &
           PID_COMMON=$!
