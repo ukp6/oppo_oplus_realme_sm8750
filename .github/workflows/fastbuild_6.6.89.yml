@@ -119,11 +119,28 @@ jobs:
           rm -rf clang.zip &
           
           echo "正在克隆构建工具..." &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/build-tools.zip -o build-tools.zip &&
-          unzip -q build-tools.zip &&
-          rm -rf build-tools.zip &
+          # 改进版本
+          download_and_extract() {
+            local url=$1
+            local output=$2
+            local extract_dir=$3
+  
+            aria2c -s16 -x16 -k1M "$url" -o "$output" || return 1
+            unzip -q "$output" || return 1
+            [ -n "$extract_dir" ] && mv * "$extract_dir"
+            rm -rf "$output"
+          ｝
+
+          download_and_extract "https://github.com/.../common.zip" "common.zip" "common" &
+          PID_COMMON=$!
+
+          download_and_extract "https://github.com/.../clang.zip" "clang.zip" "clang18" &
+          PID_CLANG=$!
+
+          # 等待所有后台任务完成并检查状态
+          wait $PID_COMMON || { echo "Common源码下载失败"; exit 1; }
+          wait $PID_CLANG || { echo "Clang下载失败"; exit 1; }
           
-          wait
           echo "所有源码及llvm-Clang18工具链初始化完成！"
           echo "正在去除 ABI 保护 & 去除 dirty 后缀..."
           rm common/android/abi_gki_protected_exports_* || true
@@ -152,31 +169,20 @@ jobs:
       
       - name: 初始化并配置ccache
         run: |
-          # 设置ccache环境变量
-          export CCACHE_COMPILERCHECK="none"
-          export CCACHE_BASEDIR="${{ github.workspace }}"
-          export CCACHE_NOHASHDIR="true"
-          export CCACHE_HARDLINK="true"
-          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
-          export CCACHE_MAXSIZE="${{ env.CCACHE_MAXSIZE }}"
-          
-          # 确保ccache目录存在
-          mkdir -p "$CCACHE_DIR"
-          
-          # 每次运行都重新配置缓存大小
-          echo "配置ccache缓存大小为: $CCACHE_MAXSIZE"
-          ccache -M "$CCACHE_MAXSIZE"
-          ccache -o compression=true
-          
-          # 显示初始缓存状态
-          echo "ccache初始状态:"
-          ccache -s
-          
-          # 如果缓存恢复命中，显示详细信息
-          if [ "${{ steps.ccache-restore.outputs.cache-hit }}" == 'true' ]; then
-            echo "ccache缓存命中详情:"
-            ccache -sv
-          fi
+          mkdir -p "${{ env.CCACHE_DIR }}"
+          cat > "${{ env.CCACHE_DIR }}/ccache.conf" << 'EOF'
+          max_size = 3G
+          compression = true
+          compression_level = 6
+          direct = true
+          sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros
+          hash_dir = false
+          hardlink = true
+          basedir = ${{ github.workspace }}
+          EOF
+    
+          ccache -z  # 重置统计信息
+          ccache -sv # 验证配置
 
       - name: 添加KernelSU
         id: ksu_version
@@ -192,20 +198,34 @@ jobs:
             echo "当前提交哈希: $GIT_COMMIT_HASH"
             export KSU_VERSION=$KSU_VERSION
             # 尝试最多 3 次获取 KernelSU API 版本号
-            for i in {1..3}; do
-              # 从远程 Kbuild 中提取 KSU_API_VERSION
-              KSU_API_VERSION=$(curl -s "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/builtin/kernel/Kbuild" | 
-                # 查找第一个包含版本定义的行
-                grep -m1 "KSU_VERSION_API :=" | 
-                # 提取等号后的值
-                awk -F'= ' '{print $2}' | 
-                # 删除所有空白字符
-                tr -d '[:space:]')
-              # 如果成功获取到版本号则跳出循环，否则等待 1 秒后重试
-              [ -n "$KSU_API_VERSION" ] && break || sleep 1
-            done
-            # 如果获取失败，使用默认版本号 3.1.7
-            [ -z "$KSU_API_VERSION" ] && KSU_API_VERSION="3.1.7"
+            get_ksu_api_version() {
+              local max_retries=5
+              local timeout=10
+              local retry=0
+
+              while [ $retry -lt $max_retries ]; do
+                local version=$(curl -s --max-time $timeout "https://..." \
+                  | grep "KSU_VERSION_API" \
+                  | awk -F'= ' '{print $2}' \
+                  | tr -d '[:space:]')
+                  
+                if [ -n "$version" ] && [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  echo "$version"
+                  return 0
+                fi
+
+                retry=$((retry + 1))
+                echo "⚠️ 尝试 $retry/$max_retries 获取 KSU 版本..." >&2
+                sleep 2
+              done
+
+                echo "❌ 无法获取 KSU API 版本，使用备用版本" >&2
+                echo "3.1.7"
+                return 1
+              }
+              
+              KSU_API_VERSION=$(get_ksu_api_version)
+              echo "KSU_API_VERSION=$KSU_API_VERSION" >> $GITHUB_ENV
             # 将 API 版本号存储到 GitHub 环境变量
             echo "KSU_API_VERSION=$KSU_API_VERSION" >> $GITHUB_ENV
             # 创建版本定义模板&版本格式函数: 使用获取的提交哈希和固定后缀
@@ -251,7 +271,7 @@ jobs:
             echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksunext" ]]; then
             echo "正在配置KernelSU Next..."
-            curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+            curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev
             cd KernelSU-Next
             rm -rf .git
             KSU_VERSION=$(expr $(curl -sI "https://api.github.com/repos/pershoot/KernelSU-Next/commits?sha=dev&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 30000)
@@ -296,8 +316,24 @@ jobs:
             cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
             cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
             cd ./common
-            patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
-            patch -p1 < 69_hide_stuff.patch || true
+            apply_patch() {
+              local patch_file=$1
+              local level=${2:-1}
+  
+              if patch -p$level --dry-run < "$patch_file" > /dev/null 2>&1; then
+                echo "✓ 正在应用补丁: $(basename $patch_file)"
+                patch -p$level < "$patch_file"
+              else
+                echo "⚠️ 补丁冲突: $(basename $patch_file)，尝试模糊匹配..."
+                patch -p$level -N -F 3 < "$patch_file" || {
+                  echo "❌ 关键补丁应用失败: $patch_file"
+                  return 1
+                }
+              fi
+            }
+
+          apply_patch "50_add_susfs_in_gki.patch" || handle_susfs_error
+          apply_patch "69_hide_stuff.patch"
           elif [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
             echo "正在添加ReSukiSU补丁..."
             git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
@@ -582,9 +618,17 @@ jobs:
           fi
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
           echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
-           
+          
+      - name: 预清理环境（提前执行）
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
+          # 其他初始化工作同时进行
+          
       - name: 构建内核
         run: |
+          make -j$(nproc --all) ...
+          wait  # 最后汇总等待
+          
           WORKDIR="$(pwd)"
           export PATH="/usr/lib/ccache:$PATH"
           export PATH="$WORKDIR/kernel_workspace/clang18/bin:$PATH"
@@ -629,42 +673,20 @@ jobs:
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
           echo 'ld.lld "$@"' >> ld-wrapper
           
-          # 测试时间劫持测试是否正常工作
-          echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
-          echo '#!/bin/bash' > test-wrapper.sh
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
-          echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
-          echo 'echo ">>> Wrapper 内部环境检查完毕."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # 执行所有传入的参数
-          chmod +x test-wrapper.sh
-          echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
-          ./test-wrapper.sh date
-          echo "--- [Wrapper Test] 正在测试 (stat) 命令 ---"
-          ./test-wrapper.sh stat ./Makefile
-          echo "--- [Wrapper Test] 测试完毕 ---"
-          chmod +x cc-wrapper ld-wrapper
-          echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译前环境文件时间戳: ---"
-          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
-          
-          #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
-          sudo rm -rf /usr/share/dotnet &
-          sudo rm -rf /usr/local/lib/android &
-          sudo rm -rf /opt/ghc &
-          sudo rm -rf /opt/hostedtoolcache/CodeQL &
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
-          
-          # 编译后时间劫持二次校验
-          echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译后环境文件时间戳: ---"
-          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
-          echo "内核编译完成！"
-          echo "ccache状态："
-          ccache -s
-          echo "编译后空间:"
-          df -h
+      - name: 验证环境时间劫持
+        run: |
+          export LD_PRELOAD="$PRELOAD_LIBS"
+          export FAKESTAT="2025-05-25 12:00:00"
+          export FAKETIME="@2025-05-25 13:00:00"
+    
+          FAKED_TIME=$(date +%s)
+          REAL_TIME=$(env -u FAKETIME -u FAKESTAT /bin/date +%s)
+    
+          if [ "$FAKED_TIME" != "$REAL_TIME" ]; then
+            echo "✓ 时间劫持成功: 伪造=$FAKED_TIME, 真实=$REAL_TIME"
+          else
+            echo "⚠️ 时间劫持可能无效！"
+          fi
          
       - name: 应用KPM并修补内核
         run: |
@@ -721,11 +743,13 @@ jobs:
           name: ccache-debug-log
           path: ${{ github.workspace }}/kernel_workspace/ccache.log
 
-      - name: 上传 ZIP 工件
+      - name: 上传 ZIP 工件（压缩）
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel_ZIP_Artifacts
+          name: Kernel_ZIP_${{ github.run_id }}
           path: ${{ github.workspace }}/kernel_workspace/AnyKernel*.zip
+          retention-days: 30
+          compression-level: 9
 
   release:
     needs: build
@@ -773,7 +797,24 @@ jobs:
             KSU_TYPENAME="无内置KSU"
           fi
           echo "KSU_TYPENAME=$KSU_TYPENAME" >> $GITHUB_ENV
-         
+
+      # 添加构建日志收集
+      - name: 收集构建日志
+        if: always()
+        run: |
+          mkdir -p ./build-logs
+          cp ${{ github.workspace }}/kernel_workspace/ccache.log ./build-logs/ 2>/dev/null || true
+          cp ${{ github.workspace }}/kernel_workspace/common/out/arch/arm64/boot/.config ./build-logs/ 2>/dev/null || true
+          tar -czf build-logs.tar.gz ./build-logs/
+
+      - name: 上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build_Logs
+          path: build-logs.tar.gz
+          retention-days: 7
+    
       - name: 创建发布
         id: create_release
         uses: softprops/action-gh-release@v1
