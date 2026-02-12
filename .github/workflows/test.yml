@@ -21,6 +21,11 @@ on:
           - 'mksu'
           - 'ksu'
           - 'none'
+      third_manager_enable:
+        description: '是否启用第三方 Manager 白名单 (pershoot / Wild_KSU 支持)'
+        required: true
+        type: boolean
+        default: 'true'  # 或 false，根据你默认需求
       susfs_enable:
         description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭)'
         required: true
@@ -171,6 +176,21 @@ jobs:
             ccache -sv
           fi
 
+      - name: 应用第三方 Manager 白名单补丁 (apk_sign)
+        run: |
+          cd kernel_workspace/common
+          
+          if [[ ${{ github.event.inputs.third_manager_enable }} == "true" ]]; then
+            echo "正在应用第三方 Manager 白名单补丁..."
+            
+            curl -LSs https://raw.githubusercontent.com/ukp6/oplus_realme_sm8750/main/other_patch/apk_sign.patch -o apk_sign.patch || exit 1
+            
+            patch -p1 < apk_sign.patch || { echo "补丁应用失败！"; exit 1; }
+            
+            echo "✓ 补丁应用成功"
+            rm -f apk_sign.patch
+          fi
+      
       - name: 添加KernelSU
         id: ksu_version
         run: |
