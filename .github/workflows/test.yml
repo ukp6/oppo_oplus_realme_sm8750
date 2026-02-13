@@ -440,11 +440,6 @@ jobs:
           if ! grep -q "^CONFIG_HEADERS_INSTALL=n" "$DEFCONFIG"; then
             echo "CONFIG_HEADERS_INSTALL=n" >> "$DEFCONFIG"
           fi
-
-          # ---------- 启用 hmbird（第二代风驰）----------
-          echo "CONFIG_HMBIRD_SCHED=y" >> "$DEFCONFIG"
-          echo "CONFIG_HMBIRD_OGKI_VERSION=y" >> "$DEFCONFIG"
-          sed -i '/CONFIG_SCHED_CLASS_EXT=y/d' "$DEFCONFIG"
           
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
@@ -568,28 +563,6 @@ jobs:
           echo "CONFIG_LOCALVERSION_AUTO=n" >> "$DEFCONFIG"
           # 清理 setlocalversion 中的干扰
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion 2>/dev/null || true
-
-      - name: 强制启用 hmBIRD 调度器（awk 稳健插入）
-        run: |
-          cd kernel_workspace/common
-          FILE="kernel/sched/hmbird/hmbird.c"
-          if [ ! -f "$FILE" ]; then
-            echo "⚠️ 未找到 $FILE，跳过 hmBIRD 修改"
-            exit 0
-          fi
-          echo "正在强制启用 hmBIRD（第二代风驰）..."
-          awk '/^void __init init_sched_hmbird_class/,/^}/ {
-            if ($0 ~ /^}/) {
-              print "\thmbird_ctrl(true);"
-            }
-            print
-          }' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
-          if grep -q "hmbird_ctrl(true)" "$FILE"; then
-            echo "✅ hmBIRD 强制启用成功"
-          else
-            echo "❌ hmBIRD 强制启用失败，请检查文件内容"
-            exit 1
-          fi
 
       - name: 预清理磁盘空间（释放资源）
         run: |
