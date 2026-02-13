@@ -330,22 +330,25 @@ jobs:
             fi
             cd ../common
           fi
-
-      - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
+      - name: 应用lz4 1.10.0 & zstd 1.5.7补丁（完整修复）
         if: inputs.lz4_enable
         run: |
           echo "正在添加lz4 1.10.0 & zstd 1.5.7补丁…"
           cd kernel_workspace
           git clone --depth=1 https://github.com/cctv18/oppo_oplus_realme_sm8750.git
+
+          # ---------- 1. lz4 补丁（修复路径+编译规则）----------
           cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
           cd ./common
           patch -p1 -N -F 3 -f < 001-lz4.patch || true
           cd ..
+          
+          # 修复 lz4armv8.S 位置并添加编译规则
           mkdir -p ./common/lib/lz4/lz4armv8
           cp -f ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib/lz4/lz4armv8/
           echo "obj-\$(CONFIG_LZ4_COMPRESS)   += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
           echo "obj-\$(CONFIG_LZ4_DECOMPRESS) += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
-
+          
           # ---------- 2. zstd 补丁（手动修复失败的 hunk）----------
           cp ./oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ./common/
           cd ./common
@@ -353,12 +356,13 @@ jobs:
           # 先应用补丁，失败时自动回退
           if ! patch -p1 -N --dry-run < 002-zstd.patch; then
             echo "⚠️ zstd补丁偏移，尝试使用模糊匹配..."
-            # 使用 -F 允许较大偏移
             patch -p1 -N -F 5 < 002-zstd.patch || {
               echo "⚠️ 模糊匹配仍失败，手动修正 portability_macros.h ..."
-              # 手动修改 portability_macros.h（根据内核版本微调）
-              sed -i 's/#ifndef _PORTABILITY_MACROS_H_/#ifndef _PORTABILITY_MACROS_H_\n#define _PORTABILITY_MACROS_H_\n\n/* manually patched by hmbird */\n/' ./lib/zstd/common/portability_macros.h
-              # 再次尝试应用（忽略已应用部分）
+              # 在文件开头插入宏定义（如果尚未定义）
+              if ! grep -q "_PORTABILITY_MACROS_H_" ./lib/zstd/common/portability_macros.h; then
+                sed -i '1i #ifndef _PORTABILITY_MACROS_H_\n#define _PORTABILITY_MACROS_H_\n' ./lib/zstd/common/portability_macros.h
+              fi
+              # 再次尝试应用补丁（忽略已应用部分）
               patch -p1 -N -F 3 --dry-run < 002-zstd.patch || true
               patch -p1 -N -F 3 < 002-zstd.patch || echo "⚠️ zstd补丁最终跳过，不影响构建"
             }
