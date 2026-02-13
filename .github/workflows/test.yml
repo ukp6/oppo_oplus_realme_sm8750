@@ -331,39 +331,37 @@ jobs:
             cd ../common
           fi
           
-      - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
+      - name: 应用lz4 1.10.0补丁
         if: inputs.lz4_enable
         run: |
-          echo "正在添加lz4 1.10.0 & zstd 1.5.7补丁…"
+          echo "正在添加lz4 1.10.0补丁…"
           cd kernel_workspace
-          git clone --depth=1 https://github.com/cctv18/oppo_oplus_realme_sm8750.git
-
-          # ---------- lz4 补丁（必须修复二进制文件）----------
-          cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
+          REPO_ROOT="${{ github.workspace }}"
+          
+          # ---------- lz4 补丁 ----------
+          cp "$REPO_ROOT/zram_patch/001-lz4.patch" ./common/
+          cp "$REPO_ROOT/zram_patch/001-lz4-clearMake.patch" ./common/
+          cp "$REPO_ROOT/zram_patch/lz4armv8.S" ./common/
           cd ./common
           patch -p1 -N -F 3 -f < 001-lz4.patch || true
+          patch -p1 -N -F 3 -f < 001-lz4-clearMake.patch || true
           cd ..
-          
-          # 修复 lz4armv8.S 位置并添加编译规则（关键，否则编译报错）
-          mkdir -p ./common/lib/lz4/lz4armv8
-          cp -f ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib/lz4/lz4armv8/
-          echo "obj-\$(CONFIG_LZ4_COMPRESS)   += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
-          echo "obj-\$(CONFIG_LZ4_DECOMPRESS) += lz4armv8/lz4armv8.o" >> ./common/lib/lz4/Makefile
-          
-          # ---------- zstd 补丁（能打多少打多少，不打也行）----------
-          cp ./oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ./common/
-          cd ./common
-          patch -p1 -N -F 3 < 002-zstd.patch || echo "⚠️ zstd补丁应用失败，不影响构建"
 
-      - name: 应用 lz4kd 补丁
+      - name: 应用 lz4kd + zstd 1.5.7补丁
         if: inputs.lz4kd_enable
         run: |
-          echo "正在添加lz4kd补丁…"
+          echo "正在添加lz4kd + zstd 1.5.7补丁…"
           cd kernel_workspace
+          REPO_ROOT="${{ github.workspace }}"
+          
+          # 克隆 SukiSU_patch（lz4kd 来源）
           if [ ! -d "SukiSU_patch" ]; then
             git clone --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git
           fi
+          
           cd common
+          
+          # ---------- 应用 lz4kd 补丁 ----------
           cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/ 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/ 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/ 2>/dev/null || true
@@ -372,6 +370,12 @@ jobs:
           else
             echo "⚠️ lz4kd 补丁文件不存在"
           fi
+          
+          # ---------- 应用 zstd 1.5.7 补丁 ----------
+          echo "正在应用 zstd 1.5.7 补丁..."
+          cp "$REPO_ROOT/zram_patch/002-zstd.patch" ./
+          patch -p1 -N -F 3 < 002-zstd.patch || echo "⚠️ zstd补丁应用失败，不影响构建"
+
           
       - name: 添加SUSFS 配置项
         if: inputs.susfs_enable
