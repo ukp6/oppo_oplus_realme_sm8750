@@ -544,6 +544,7 @@ jobs:
       - name: 启用内核级基带保护
         if: inputs.baseband_guard
         run: |
+          set -e
           echo "正在启用内核级基带保护支持…"
           cd "${{ github.workspace }}/kernel_workspace"
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
@@ -552,16 +553,7 @@ jobs:
           fi
           cd ./common
           curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
-          cd "${{ github.workspace }}/kernel_workspace"
-          LSM_LINE="CONFIG_LSM=landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"
-          if grep -q "^CONFIG_DEFAULT_SECURITY_APPARMOR=y" "$DEFCONFIG"; then
-            LSM_LINE="CONFIG_LSM=landlock,lockdown,yama,loadpin,safesetid,apparmor,selinux,bpf,baseband_guard"
-          elif grep -q "^CONFIG_DEFAULT_SECURITY_SMACK=y" "$DEFCONFIG"; then
-            LSM_LINE="CONFIG_LSM=landlock,lockdown,yama,loadpin,safesetid,smack,selinux,bpf,baseband_guard"
-          fi
-          sed -i '/^CONFIG_LSM=/d' "$DEFCONFIG"
-          echo "$LSM_LINE" >> "$DEFCONFIG"
-          echo "✅ 基带保护已完整启用（BBG + LSM）"
+          echo "✅ 基带保护基础配置完成，LSM 将在编译前修正"
 
       - name: 添加制作名称
         run: |
@@ -594,11 +586,6 @@ jobs:
           export PATH="/usr/lib/ccache:$PATH"
           export PATH="$WORKDIR/kernel_workspace/clang18/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-          CLANG_DIR="$WORKDIR/kernel_workspace/clang18/bin"
-
-          echo "Clang版本: $($CLANG_DIR/clang --version | head -n1)"
-          echo "LLD版本: $($CLANG_DIR/ld.lld --version | head -n1)"
-          
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
           export CCACHE_COMPILERCHECK="none"
           export CCACHE_BASEDIR="${{ github.workspace }}"
@@ -606,14 +593,26 @@ jobs:
           export CCACHE_HARDLINK="true"
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           export CCACHE_MAXSIZE="3G"
-          
           cd kernel_workspace/common
-
           # ---------- 配置内核 ----------
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig
-          
+          # ---------- 修正 .config 中的 LSM 链（确保 baseband_guard 生效）----------
+          if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
+            echo "正在修正 .config 中的 LSM 链..."
+            cd kernel_workspace/common/out
+            if grep -q "^CONFIG_LSM=" .config; then
+              if ! grep -q "baseband_guard" .config; then
+                sed -i '/^CONFIG_LSM=/ s/"$/",baseband_guard"/' .config
+                sed -i '/^CONFIG_LSM=/ s/=$/="landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"/' .config
+              fi
+            else
+              echo 'CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"' >> .config
+            fi
+            echo "✅ .config LSM 修正完成"
+            cd ..
+          fi
           # ---------- 编译内核 ----------
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
