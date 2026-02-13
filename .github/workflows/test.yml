@@ -565,6 +565,15 @@ jobs:
           # 清理 setlocalversion 中的干扰
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion 2>/dev/null || true
 
+      - name: ⚙️ 强制 hmbird 默认启用（内核源码修改）
+        run: |
+          cd kernel_workspace/common
+          sed -i '/^void __init init_sched_hmbird_class/,/^}/ {
+            /^}/ i\
+            \tscx_enable = 1;
+          }' kernel/sched/hmbird/hmbird.c
+          grep -A5 'init_sched_hmbird_class' kernel/sched/hmbird/hmbird.c | tail -6
+
       - name: 预清理磁盘空间（释放资源）
         run: |
           echo "清理不必要的系统目录以释放磁盘空间..."
