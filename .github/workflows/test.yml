@@ -601,21 +601,21 @@ jobs:
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig
 
-          # ---------- 修正 .config 中的 LSM 链（仅当启用基带保护时）----------
-          if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
+          if [[ "true" == "true" ]]; then
             echo "正在修正 .config 中的 LSM 链..."
             cd out
             if grep -q "^CONFIG_LSM=" .config; then
-              # 如果已有 baseband_guard 则跳过，否则追加
               if ! grep -q "baseband_guard" .config; then
-                # 简单追加，处理带引号和不带引号两种情况
-                sed -i '/^CONFIG_LSM=/ s/"$/",baseband_guard"/' .config
-                sed -i '/^CONFIG_LSM=/ s/=$/="landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"/' .config
+                # 在行尾双引号前插入 ,baseband_guard，保留原有所有模块
+                awk '/^CONFIG_LSM=/ { if (!/baseband_guard/) { sub(/"$/, ",baseband_guard\""); } }1' .config > .config.tmp && mv .config.tmp .config
+                echo "✅ 已追加 baseband_guard 到 LSM 列表"
+              else
+                echo "baseband_guard 已存在，无需追加"
               fi
             else
               echo 'CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"' >> .config
+              echo "✅ 已设置默认 LSM 列表（含 baseband_guard）"
             fi
-            echo "✅ .config LSM 修正完成"
             cd ..
           fi
 
