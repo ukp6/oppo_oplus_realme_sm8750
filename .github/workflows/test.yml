@@ -540,32 +540,7 @@ jobs:
           if ! grep -q "^CONFIG_REKERNEL=y" "$DEFCONFIG"; then
             echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
           fi
-
-      - name: 强制关闭基带保护（如果用户未启用且源码默认开启）
-        if: github.event.inputs.baseband_guard != 'true'
-        run: |
-          DEFCONFIG="./kernel_workspace/common/arch/arm64/configs/gki_defconfig"
-          if grep -q "^CONFIG_BBG=y" "$DEFCONFIG"; then
-            sed -i '/^CONFIG_BBG=y/d' "$DEFCONFIG"
-            echo "✅ 已从 defconfig 中移除默认的 CONFIG_BBG=y"
-          else
-            echo "defconfig 中未发现 CONFIG_BBG=y，无需处理"
-          fi
-      
-      - name: 启用内核级基带保护
-        if: inputs.baseband_guard
-        run: |
-          set -e
-          echo "正在启用内核级基带保护支持…"
-          cd "${{ github.workspace }}/kernel_workspace"
-          DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
-          if ! grep -q "^CONFIG_BBG=y" "$DEFCONFIG"; then
-            echo "CONFIG_BBG=y" >> "$DEFCONFIG"
-          fi
-          cd ./common
-          curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
-          echo "✅ 基带保护基础配置完成，LSM 将在编译前修正"
-
+          
       - name: 添加制作名称
         run: |
           cd kernel_workspace
@@ -590,7 +565,7 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           df -h
-       
+
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
@@ -612,29 +587,42 @@ jobs:
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig
 
-          if [[ "true" == "true" ]]; then
-            echo "正在修正 .config 中的 LSM 链..."
+          # ---------- 根据输入动态控制 BBG ----------
+          if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
+            echo "🔧 启用基带保护 (BBG)..."
+            scripts/config --file out/.config --enable CONFIG_BBG
+            # 将 baseband_guard 追加到 LSM 链（如果不存在）
             cd out
             if grep -q "^CONFIG_LSM=" .config; then
               if ! grep -q "baseband_guard" .config; then
-                # 在行尾双引号前插入 ,baseband_guard，保留原有所有模块
-                awk '/^CONFIG_LSM=/ { if (!/baseband_guard/) { sub(/"$/, ",baseband_guard\""); } }1' .config > .config.tmp && mv .config.tmp .config
+                awk '/^CONFIG_LSM=/ { sub(/"$/, ",baseband_guard\""); print; next }1' .config > .config.tmp
+                mv .config.tmp .config
                 echo "✅ 已追加 baseband_guard 到 LSM 列表"
               else
                 echo "baseband_guard 已存在，无需追加"
               fi
             else
               echo 'CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"' >> .config
-              echo "✅ 已设置默认 LSM 列表（含 baseband_guard）"
             fi
             cd ..
+          else
+            echo "🔧 禁用基带保护 (BBG)..."
+            scripts/config --file out/.config --disable CONFIG_BBG
+            # 确保 LSM 链中不含 baseband_guard（可选，但不处理也不影响，因为模块未启用）
+            echo "✅ 已禁用 BBG，LSM 链保持不变"
+          fi
+
+          # ---------- 可选：如果 BBG 启用，运行其 setup 脚本 ----------
+          if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
+            cd "$WORKDIR/kernel_workspace/common"
+            curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           fi
 
           # ---------- 编译内核 ----------
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
-            
+      
       - name: 应用KPM并修补内核
         run: |
           if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
