@@ -437,9 +437,7 @@ jobs:
 
           # ---------- 启用 hmbird（第二代风驰）----------
           echo "CONFIG_HMBIRD_SCHED=y" >> "$DEFCONFIG"
-          # 启用 OPPO GKI 标识（让 hmbird 识别为 OGKI 环境）
           echo "CONFIG_HMBIRD_OGKI_VERSION=y" >> "$DEFCONFIG"
-          # 禁用冲突的 sched_ext（必须！hmbird 与 sched_ext 不能共存）
           sed -i '/CONFIG_SCHED_CLASS_EXT=y/d' "$DEFCONFIG"
           
       - name: 启用网络功能增强优化配置
