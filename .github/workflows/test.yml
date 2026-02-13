@@ -336,45 +336,49 @@ jobs:
         run: |
           echo "正在添加lz4 1.10.0补丁…"
           cd kernel_workspace
-          REPO_ROOT="${{ github.workspace }}"
           
-          # ---------- lz4 补丁 ----------
-          cp "$REPO_ROOT/zram_patch/001-lz4.patch" ./common/
-          cp "$REPO_ROOT/zram_patch/001-lz4-clearMake.patch" ./common/
-          cp "$REPO_ROOT/zram_patch/lz4armv8.S" ./common/
+          git clone --depth=1 https://github.com/ukp6/oppo_oplus_realme_sm8750.git
+          
+          cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
+          cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4-clearMake.patch ./common/
+          mkdir -p ./common/lib/lz4
+          cp ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib/lz4/lz4armv8.S
+          
           cd ./common
-          patch -p1 -N -F 3 -f < 001-lz4.patch || true
-          patch -p1 -N -F 3 -f < 001-lz4-clearMake.patch || true
-          cd ..
+          
+          patch -p1 -N -F 3 -f < 001-lz4.patch || echo "⚠️ lz4补丁部分失败，继续构建"
+          patch -p1 -N -F 3 -f < 001-lz4-clearMake.patch || echo "⚠️ clearMake补丁失败，继续构建"
+          
+          echo "lz4 1.10.0 补丁应用完成"
 
       - name: 应用 lz4kd + zstd 1.5.7补丁
         if: inputs.lz4kd_enable
         run: |
           echo "正在添加lz4kd + zstd 1.5.7补丁…"
           cd kernel_workspace
-          REPO_ROOT="${{ github.workspace }}"
           
-          # 克隆 SukiSU_patch（lz4kd 来源）
+          git clone --depth=1 https://github.com/ukp6/oppo_oplus_realme_sm8750.git
+          cp ./oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ./common/
+          
           if [ ! -d "SukiSU_patch" ]; then
             git clone --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git
           fi
           
           cd common
           
-          # ---------- 应用 lz4kd 补丁 ----------
           cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/ 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/ 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/ 2>/dev/null || true
+          
           if [ -f ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ]; then
             patch -p1 -N --fuzz=3 < ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch || echo "⚠️ lz4kd 补丁应用失败"
           else
-            echo "⚠️ lz4kd 补丁文件不存在"
+            echo "⚠️ 未找到对应内核版本的lz4kd补丁文件"
           fi
           
-          # ---------- 应用 zstd 1.5.7 补丁 ----------
-          echo "正在应用 zstd 1.5.7 补丁..."
-          cp "$REPO_ROOT/zram_patch/002-zstd.patch" ./
-          patch -p1 -N -F 3 < 002-zstd.patch || echo "⚠️ zstd补丁应用失败，不影响构建"
+          patch -p1 -N -F 3 -f < 002-zstd.patch || echo "⚠️ zstd补丁应用失败，不影响构建"
+          
+          echo "lz4kd + zstd 1.5.7 补丁应用完成"
 
           
       - name: 添加SUSFS 配置项
