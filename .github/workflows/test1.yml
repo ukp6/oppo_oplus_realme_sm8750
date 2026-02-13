@@ -676,47 +676,12 @@ jobs:
             zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip ./*
           fi
 
-      - name: 分类并压缩 ccache 日志
-        if: always() && inputs.ccache_debug
-        working-directory: ${{ github.workspace }}/kernel_workspace
-        run: |
-          grep -i -E "error|warning" ccache.log > ccache_errors.log || true
-          grep -E "Result:|cache (hit|miss)" ccache.log > ccache_stats.log || true
-          grep "mtime/ctime miss" ccache.log > ccache_miss.log || true
-          grep -v -e "mtime/ctime miss" -e "Result:" -e "cache hit" -e "cache miss" -e "error" -e "warning" ccache.log > ccache_other.log || true
-          gzip -9 ccache_errors.log
-          gzip -9 ccache_stats.log
-          gzip -9 ccache_miss.log
-          gzip -9 ccache_other.log
-
-      - name: 上传错误/警告日志
+      - name: 上传 Ccache 调试日志
         if: always() && inputs.ccache_debug
         uses: actions/upload-artifact@v4
         with:
-          name: ccache-errors-log
-          path: ${{ github.workspace }}/kernel_workspace/ccache_errors.log.gz
-
-      - name: 上传缓存统计日志
-        if: always() && inputs.ccache_debug
-        uses: actions/upload-artifact@v4
-        with:
-          name: ccache-stats-log
-          path: ${{ github.workspace }}/kernel_workspace/ccache_stats.log.gz
-
-      - name: 上传 miss 日志（大量依赖检查记录）
-        if: always() && inputs.ccache_debug
-        uses: actions/upload-artifact@v4
-        with:
-          name: ccache-miss-log
-          path: ${{ github.workspace }}/kernel_workspace/ccache_miss.log.gz
-
-
-      - name: 上传其他日志
-        if: always() && inputs.ccache_debug
-        uses: actions/upload-artifact@v4
-        with:
-          name: ccache-other-log
-          path: ${{ github.workspace }}/kernel_workspace/ccache_other.log.gz
+          name: ccache-debug-log
+          path: ${{ github.workspace }}/kernel_workspace/ccache.log
 
   release:
     needs: build
