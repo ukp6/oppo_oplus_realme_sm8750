@@ -579,7 +579,7 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           df -h
-      
+       
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
@@ -593,17 +593,22 @@ jobs:
           export CCACHE_HARDLINK="true"
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           export CCACHE_MAXSIZE="3G"
+
           cd kernel_workspace/common
+
           # ---------- 配置内核 ----------
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig
-          # ---------- 修正 .config 中的 LSM 链（确保 baseband_guard 生效）----------
+
+          # ---------- 修正 .config 中的 LSM 链（仅当启用基带保护时）----------
           if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
             echo "正在修正 .config 中的 LSM 链..."
-            cd kernel_workspace/common/out
+            cd out
             if grep -q "^CONFIG_LSM=" .config; then
+              # 如果已有 baseband_guard 则跳过，否则追加
               if ! grep -q "baseband_guard" .config; then
+                # 简单追加，处理带引号和不带引号两种情况
                 sed -i '/^CONFIG_LSM=/ s/"$/",baseband_guard"/' .config
                 sed -i '/^CONFIG_LSM=/ s/=$/="landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"/' .config
               fi
@@ -613,11 +618,12 @@ jobs:
             echo "✅ .config LSM 修正完成"
             cd ..
           fi
+
           # ---------- 编译内核 ----------
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
-         
+            
       - name: 应用KPM并修补内核
         run: |
           if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
