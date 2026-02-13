@@ -41,7 +41,7 @@ on:
         type: boolean
         default: 'true'
       lz4kd_enable:
-        description: '是否安装 LZ4KD+zsyd 补丁(若已开启lz4补丁则可不开启)'
+        description: '是否安装 LZ4KD 补丁(若已开启lz4补丁则可不开启)'
         required: true
         type: boolean
         default: 'false'
@@ -331,7 +331,7 @@ jobs:
             cd ../common
           fi
           
-      - name: 应用lz4 1.10.0补丁（原版稳定方案）
+      - name: 应用lz4 1.10.0补丁
         if: inputs.lz4_enable
         run: |
           echo "正在添加lz4 1.10.0补丁…"
@@ -343,10 +343,10 @@ jobs:
           git apply -p1 < 001-lz4.patch || true
           echo "✅ lz4 1.10.0 补丁应用完成（原版方案）"
           
-      - name: 应用 lz4kd + zstd 1.5.7 补丁
+      - name: 应用 lz4kd  补丁
         if: inputs.lz4kd_enable
         run: |
-          echo "正在添加lz4kd + zstd 1.5.7补丁…"
+          echo "正在添加lz4kd 补丁…"
           cd kernel_workspace
           if [ ! -d "SukiSU_patch" ]; then
             git clone --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git
@@ -355,19 +355,18 @@ jobs:
           cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/ 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto 2>/dev/null || true
-          if [ -f ../SukiSU_patch/other/zram/zram_patch/6.6/lz4kd.patch ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/6.6/lz4kd.patch ./
-            patch -p1 -F 3 < lz4kd.patch || echo "⚠️ lz4kd补丁应用失败，继续构建"
+          PATCH_FILE="../SukiSU_patch/other/zram/zram_patch/6.6/lz4kd.patch"
+          if [ -f "$PATCH_FILE" ]; then
+            cp "$PATCH_FILE" ./
+            if patch -p1 -N -F 3 < lz4kd.patch; then
+              echo "✅ lz4kd 补丁应用成功"
+            else
+              echo "⚠️ lz4kd 补丁应用失败，继续构建"
+            fi
           else
-            echo "⚠️ lz4kd补丁文件不存在"
+            echo "⚠️ lz4kd 补丁文件不存在，跳过"
           fi
-          cd ..   # 回到 kernel_workspace，不是 ../.. ！
-          curl -LSs https://raw.githubusercontent.com/ukp6/oppo_oplus_realme_sm8750/main/zram_patch/002-zstd.patch -o 002-zstd.patch
-          cp 002-zstd.patch ./common/
-          cd ./common
-          patch -p1 -N -F 3 < 002-zstd.patch || echo "⚠️ zstd补丁应用失败，不影响构建"
-          cd ..
-          rm -f 002-zstd.patch
+          cd "${{ github.workspace }}"
           
       - name: 添加SUSFS 配置项
         if: inputs.susfs_enable
@@ -570,17 +569,27 @@ jobs:
           # 清理 setlocalversion 中的干扰
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion 2>/dev/null || true
 
-      - name: ⚙️ 强制 hmbird 默认启用（终极修复）
+      - name: 强制启用 hmBIRD 调度器（awk 稳健插入）
         run: |
           cd kernel_workspace/common
-          echo "正在修改 hmbird.c，强制启用调度器..."
-          sed -i '/^void __init init_sched_hmbird_class/,/^}/ {
-            /^}/ i\
-            \thmbird_ctrl(true);
-          }' kernel/sched/hmbird/hmbird.c
-          echo "===== 修改后的函数结尾 ====="
-          grep -A10 'init_sched_hmbird_class' kernel/sched/hmbird/hmbird.c | tail -10
-          echo "============================"
+          FILE="kernel/sched/hmbird/hmbird.c"
+          if [ ! -f "$FILE" ]; then
+            echo "⚠️ 未找到 $FILE，跳过 hmBIRD 修改"
+            exit 0
+          fi
+          echo "正在强制启用 hmBIRD（第二代风驰）..."
+          awk '/^void __init init_sched_hmbird_class/,/^}/ {
+            if ($0 ~ /^}/) {
+              print "\thmbird_ctrl(true);"
+            }
+            print
+          }' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+          if grep -q "hmbird_ctrl(true)" "$FILE"; then
+            echo "✅ hmBIRD 强制启用成功"
+          else
+            echo "❌ hmBIRD 强制启用失败，请检查文件内容"
+            exit 1
+          fi
 
       - name: 预清理磁盘空间（释放资源）
         run: |
