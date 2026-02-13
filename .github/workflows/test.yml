@@ -343,7 +343,6 @@ jobs:
           git apply -p1 < 001-lz4.patch || true
           echo "✅ lz4 1.10.0 补丁应用完成（原版方案）"
           
-      
       - name: 应用 lz4kd + zstd 1.5.7 补丁
         if: inputs.lz4kd_enable
         run: |
@@ -356,18 +355,18 @@ jobs:
           cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/ 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib 2>/dev/null || true
           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto 2>/dev/null || true
-          if [ -f ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
+          if [ -f ../SukiSU_patch/other/zram/zram_patch/6.6/lz4kd.patch ]; then
+            cp ../SukiSU_patch/other/zram/zram_patch/6.6/lz4kd.patch ./
             patch -p1 -F 3 < lz4kd.patch || echo "⚠️ lz4kd补丁应用失败，继续构建"
           else
             echo "⚠️ lz4kd补丁文件不存在"
           fi
-          cd ../..  # 回到 kernel_workspace 目录
+          cd ..   # 回到 kernel_workspace，不是 ../.. ！
           curl -LSs https://raw.githubusercontent.com/ukp6/oppo_oplus_realme_sm8750/main/zram_patch/002-zstd.patch -o 002-zstd.patch
           cp 002-zstd.patch ./common/
           cd ./common
           patch -p1 -N -F 3 < 002-zstd.patch || echo "⚠️ zstd补丁应用失败，不影响构建"
-          cd ../..
+          cd ..
           rm -f 002-zstd.patch
           
       - name: 添加SUSFS 配置项
@@ -571,14 +570,17 @@ jobs:
           # 清理 setlocalversion 中的干扰
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion 2>/dev/null || true
 
-      - name: ⚙️ 强制 hmbird 默认启用（内核源码修改）
+      - name: ⚙️ 强制 hmbird 默认启用（终极修复）
         run: |
           cd kernel_workspace/common
+          echo "正在修改 hmbird.c，强制启用调度器..."
           sed -i '/^void __init init_sched_hmbird_class/,/^}/ {
             /^}/ i\
-            \tscx_enable = 1;
+            \thmbird_ctrl(true);
           }' kernel/sched/hmbird/hmbird.c
-          grep -A5 'init_sched_hmbird_class' kernel/sched/hmbird/hmbird.c | tail -6
+          echo "===== 修改后的函数结尾 ====="
+          grep -A10 'init_sched_hmbird_class' kernel/sched/hmbird/hmbird.c | tail -10
+          echo "============================"
 
       - name: 预清理磁盘空间（释放资源）
         run: |
