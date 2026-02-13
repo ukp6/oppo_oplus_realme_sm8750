@@ -444,7 +444,7 @@ jobs:
       - name: 启用网络功能增强优化配置
         if: inputs.better_net
         run: |
-          cd kernel_workspace
+          cd "${{ github.workspace }}/kernel_workspace"
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
           cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_BPF_STREAM_PARSER=y
@@ -472,8 +472,18 @@ jobs:
           CONFIG_IP6_NF_TARGET_MASQUERADE=y
           EOF
           cd common
-          if [ -f ../oppo_oplus_realme_sm8750/other_patch/config.patch ]; then
-            patch -p1 -N --fuzz=3 < ../oppo_oplus_realme_sm8750/other_patch/config.patch || echo "⚠️ config.patch 应用失败"
+          if [ ! -d "../oppo_oplus_realme_sm8750" ]; then
+            echo "正在克隆补丁仓库…"
+            git clone --depth=1 https://github.com/ukp6/oppo_oplus_realme_sm8750.git ../oppo_oplus_realme_sm8750
+          fi
+          if [ -f "../oppo_oplus_realme_sm8750/other_patch/config.patch" ]; then
+            if patch -p1 -N --fuzz=3 < "../oppo_oplus_realme_sm8750/other_patch/config.patch"; then
+              echo "✅ config.patch 应用成功"
+            else
+              echo "⚠️ config.patch 应用失败，继续构建"
+            fi
+          else
+            echo "⚠️ config.patch 文件不存在，跳过"
           fi
 
       - name: 添加 BBR 等一系列拥塞控制算法
@@ -534,19 +544,24 @@ jobs:
       - name: 启用内核级基带保护
         if: inputs.baseband_guard
         run: |
-          echo "正在启用启用内核级基带保护支持…"
-          cd kernel_workspace
+          echo "正在启用内核级基带保护支持…"
+          cd "${{ github.workspace }}/kernel_workspace"
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
           if ! grep -q "^CONFIG_BBG=y" "$DEFCONFIG"; then
             echo "CONFIG_BBG=y" >> "$DEFCONFIG"
           fi
           cd ./common
           curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
-          if [ -f security/Kconfig ]; then
-            if ! grep -q "baseband_guard" security/Kconfig; then
-              sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
-            fi
+          cd "${{ github.workspace }}/kernel_workspace"
+          LSM_LINE="CONFIG_LSM=landlock,lockdown,yama,loadpin,safesetid,selinux,bpf,baseband_guard"
+          if grep -q "^CONFIG_DEFAULT_SECURITY_APPARMOR=y" "$DEFCONFIG"; then
+            LSM_LINE="CONFIG_LSM=landlock,lockdown,yama,loadpin,safesetid,apparmor,selinux,bpf,baseband_guard"
+          elif grep -q "^CONFIG_DEFAULT_SECURITY_SMACK=y" "$DEFCONFIG"; then
+            LSM_LINE="CONFIG_LSM=landlock,lockdown,yama,loadpin,safesetid,smack,selinux,bpf,baseband_guard"
           fi
+          sed -i '/^CONFIG_LSM=/d' "$DEFCONFIG"
+          echo "$LSM_LINE" >> "$DEFCONFIG"
+          echo "✅ 基带保护已完整启用（BBG + LSM）"
 
       - name: 添加制作名称
         run: |
