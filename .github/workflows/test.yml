@@ -421,7 +421,7 @@ jobs:
           
           # LZ4KD 支持
           if [[ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]]; then
-            for opt in "CONFIG_ZSMALLOC=y" "CONFIG_CRYPTO_LZ4HC=y" "CONFIG_CRYPTO_LZ4K=y" "CONFIG_CRYPTO_LZ4KD=y" "CONFIG_CRYPTO_842=y"; do
+            for opt in "CONFIG_ZSMALLOC=y" "CONFIG_CRYPTO_LZ4HC=y" "CONFIG_CRYPTO_LZ4K=y" "CONFIG_CRYPTO_LZ4KD=y" ; do
               if ! grep -q "^$opt" "$DEFCONFIG"; then
                 echo "$opt" >> "$DEFCONFIG"
               fi
