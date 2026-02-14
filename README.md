@@ -1,4 +1,4 @@
-# 欧加真 SM8750/MT6991 系列通用6.6风驰移植内核自动化编译脚本
+# 欧加真 SM8750/MT6991 系列通用6.6风驰移植内核自动化编译脚本 （感谢cctv18 大佬以及其他一些大佬……感谢你们的仓库）🥳
 [![STAR](https://img.shields.io/github/stars/cctv18/oppo_oplus_realme_sm8750?style=flat&logo=github)](https://github.com/cctv18/oppo_oplus_realme_sm8750/stargazers)
 [![FORK](https://img.shields.io/github/forks/cctv18/oppo_oplus_realme_sm8750?style=flat&logo=greasyfork&color=%2394E61A)](https://github.com/cctv18/oppo_oplus_realme_sm8750/forks)
 [![COOLAPK](https://img.shields.io/badge/cctv18_2-cctv18_2?style=flat&logo=android&logoColor=FF4500&label=%E9%85%B7%E5%AE%89&color=FF4500)](http://www.coolapk.com/u/22650293)
