@@ -347,7 +347,7 @@ jobs:
         working-directory: kernel_workspace
         run: |
           echo "正在添加lz4 1.10.0补丁…"
-          git clone --depth=1 https://github.com/ukp6/oppo_oplus_realme_sm8750.git
+          git clone --depth=1 https://github.com/linxx9527/oppo_oplus_realme_sm8750.git
           cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
           cp ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib
           cd ./common
@@ -486,7 +486,7 @@ jobs:
           cd common
           if [ ! -d "../oppo_oplus_realme_sm8750" ]; then
             echo "正在克隆补丁仓库…"
-            git clone --depth=1 https://github.com/ukp6/oppo_oplus_realme_sm8750.git ../oppo_oplus_realme_sm8750
+            git clone --depth=1 https://github.com/linxx9527/oppo_oplus_realme_sm8750.git ../oppo_oplus_realme_sm8750
           fi
           if [ -f "../oppo_oplus_realme_sm8750/other_patch/config.patch" ]; then
             if patch -p1 -N --fuzz=3 < "../oppo_oplus_realme_sm8750/other_patch/config.patch"; then
